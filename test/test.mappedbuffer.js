@@ -35,6 +35,10 @@ describe('MappedBuffer', function () {
         size = fs.fstatSync(fd).size;
         done();
       });
+      after(function (done) {
+        fs.closeSync(fd);
+        done();
+      });
 
       // TODO: should be check argument pattern ...
       it('should be succeed with `all` arguments', function (done) {
@@ -72,6 +76,10 @@ describe('MappedBuffer', function () {
       before(function (done) {
         fd = fs.openSync(__filename, 'r');
         size = fs.fstatSync(fd).size;
+        done();
+      });
+      after(function (done) {
+        fs.closeSync(fd);
         done();
       });
 
@@ -115,4 +123,41 @@ describe('MappedBuffer', function () {
       });
     });
   });
+
+  describe('unmap', function () {
+    var fd;
+    var buffer;
+    beforeEach(function (done) {
+      fd = fs.openSync(__filename, 'r');
+      var size = fs.fstatSync(fd).size;
+      MappedBuffer(
+        size, MappedBuffer.PROT_READ, MappedBuffer.MAP_SHARED, fd, function (err, buf) {
+        if (err) { return done(err); }
+        buffer = buf;
+        done();
+      });
+    });
+    afterEach(function (done) {
+      fs.closeSync(fd);
+      done();
+    });
+
+    it('should be succeed', function (done) {
+      buffer.unmap().should.be.a.ok;
+      buffer.length.should.eql(0);
+      done();
+    });
+
+    describe('many call', function () {
+      it('should be succeed', function (done) {
+        buffer.unmap().should.be.true;
+        buffer.length.should.eql(0);
+        buffer.unmap().should.be.false;
+        buffer.length.should.eql(0);
+        buffer.unmap().should.be.false;
+        buffer.length.should.eql(0);
+        done();
+      });
+    });
+  }); 
 });

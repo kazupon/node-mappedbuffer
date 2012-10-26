@@ -33,31 +33,45 @@ MappedBuffer::MappedBuffer(
   int32_t flags, int32_t fd, off_t offset, char *data)
   : map_(NULL), length_(0), released_(false), ObjectWrap() {
   TRACE(
-    "constructor: size=%ld, protectio=%d, flags=%d, fd=%d, offset=%lld, data=%p\n",
+    "constructor: size=%ld, protection=%d, flags=%d, fd=%d, offset=%lld, data=%p\n",
     size, protection, flags, fd, offset, data
   );
   Wrap(wrapper);
 
-  if (data == NULL) {
-    map_ = (char *)mmap(NULL, size, protection, flags, fd, offset);
-    TRACE("mmap: map_=%p\n", map_);
-  } else {
-    map_ = data;
-  }
+  map_ = (data == NULL ? (char *)mmap(NULL, size, protection, flags, fd, offset) : data);
+  TRACE("map_=%p\n", map_);
   length_ = size;
-  if (map_ == MAP_FAILED) {
+
+  if (map_ == MAP_FAILED || map_ == NULL) {
     length_ = 0;
   }
+
   handle_->Set(length_symbol, Integer::NewFromUnsigned(length_));
 }
 
 MappedBuffer::~MappedBuffer() {
   TRACE("destructor\n");
   if (!released_ && map_ != NULL && length_ > 0) {
-    munmap(map_, length_);
-    TRACE("munmap\n");
+    int32_t ret = munmap(map_, length_);
+    TRACE("munmap: ret=%d\n", ret);
     released_ = true;
   }
+}
+
+bool MappedBuffer::unmap() {
+  TRACE("map_=%p, length_=%ld, released=%d\n", map_, length_, released_);
+  if (released_) {
+    return false;
+  }
+  assert(!released_);
+
+  int32_t ret = munmap(map_, length_);
+  TRACE("munmap: ret=%d\n", ret);
+  map_ = NULL;
+  length_ = 0;
+  handle_->Set(length_symbol, Integer::NewFromUnsigned(length_));
+  released_ = true;
+  return true;
 }
 
 Handle<Value> MappedBuffer::New(const Arguments &args) {
@@ -74,7 +88,6 @@ Handle<Value> MappedBuffer::New(const Arguments &args) {
     delete[] argv;
     return scope.Close(instance);
   }
-
 
 	if (args.Length() <= 3) {
 		return ThrowException(Exception::Error(String::New("Bad argument")));
@@ -130,6 +143,16 @@ Handle<Value> MappedBuffer::New(const Arguments &args) {
   }
 }
 
+Handle<Value> MappedBuffer::Unmap(const Arguments &args) {
+  HandleScope scope;
+  TRACE("Unmap\n");
+
+  MappedBuffer *buf = ObjectWrap::Unwrap<MappedBuffer>(args.This());
+  assert(buf != NULL);
+
+  return scope.Close(Boolean::New(buf->unmap()));
+}
+
 void MappedBuffer::OnWork(uv_work_t *work_req) {
   TRACE("work_req=%p\n", work_req);
 
@@ -163,10 +186,10 @@ void MappedBuffer::OnWorkDone(uv_work_t *work_req) {
   }
   argc++;
 
-  MappedBuffer *raw = new MappedBuffer(
+  MappedBuffer *mappedbuffer = new MappedBuffer(
     req->obj, req->size, req->protection, req->flags, req->fd, req->offset, req->map
   );
-  Local<Value> buf = Local<Value>::New(raw->handle_);
+  Local<Value> buf = Local<Value>::New(mappedbuffer->handle_);
   argv[argc++] = buf;
 
   // execute callback
@@ -193,14 +216,14 @@ void MappedBuffer::Init(Handle<Object> target) {
   length_symbol = NODE_PSYMBOL("length");
 
   // prepare constructor template
-  Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
+  Local<FunctionTemplate> tpl = FunctionTemplate::New(MappedBuffer::New);
   tpl->SetClassName(String::NewSymbol("MappedBuffer"));
 
   Local<ObjectTemplate> insttpl = tpl->InstanceTemplate();
   insttpl->SetInternalFieldCount(1);
 
   // prototype
-  Local<ObjectTemplate> prottpl = tpl->PrototypeTemplate();
+  NODE_SET_PROTOTYPE_METHOD(tpl, "unmap", MappedBuffer::Unmap);
 
   ctor = Persistent<Function>::New(tpl->GetFunction());
   target->Set(String::NewSymbol("MappedBuffer"), ctor);
@@ -223,8 +246,6 @@ void MappedBuffer::Init(Handle<Object> target) {
 
 
 void init(Handle<Object> target) {
-  TRACE("load mappedbuffer module\n");
-
   MappedBuffer::Init(target);
 }
 

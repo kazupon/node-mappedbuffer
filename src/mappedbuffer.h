@@ -37,6 +37,7 @@ class MappedBuffer : public ObjectWrap {
   public:
     static Persistent<Function> ctor;
     static void Init(Handle<Object> target);
+    bool unmap();
 
   private:
     char *map_;
@@ -50,6 +51,7 @@ class MappedBuffer : public ObjectWrap {
     ~MappedBuffer();
 
     static Handle<Value> New(const Arguments &args);
+    static Handle<Value> Unmap(const Arguments &args);
 
     static void OnWork(uv_work_t *work_req);
     static void OnWorkDone(uv_work_t *work_req);
