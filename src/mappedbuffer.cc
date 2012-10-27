@@ -156,6 +156,33 @@ Handle<Value> MappedBuffer::Unmap(const Arguments &args) {
   return scope.Close(Boolean::New(buf->unmap()));
 }
 
+Handle<Value> MappedBuffer::Fill(const Arguments &args) {
+  HandleScope scope;
+  TRACE("Fill\n");
+
+	if (args.Length() < 3) {
+		return ThrowException(Exception::Error(String::New("Bad argument")));
+	}
+
+  if (!args[0]->IsInt32()) {
+    return ThrowException(Exception::Error(String::New("Value is not a number")));
+  }
+  const int32_t value = (char)args[0]->Int32Value();
+
+  // TODO; should be checked 'start' value type and range.
+  const int32_t start = args[1]->ToInteger()->Value();
+
+  // TODO; should be checked 'end' value type and range.
+  const int32_t end = args[2]->ToInteger()->Value();
+
+  MappedBuffer *buf = ObjectWrap::Unwrap<MappedBuffer>(args.This());
+  assert(buf != NULL);
+
+  memset((void *)(buf->map_ + start), value, end - start);
+
+  return scope.Close(args.This());
+}
+
 void MappedBuffer::OnWork(uv_work_t *work_req) {
   TRACE("work_req=%p\n", work_req);
 
@@ -227,6 +254,7 @@ void MappedBuffer::Init(Handle<Object> target) {
 
   // prototype
   NODE_SET_PROTOTYPE_METHOD(tpl, "unmap", MappedBuffer::Unmap);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "fill", MappedBuffer::Fill);
 
   ctor = Persistent<Function>::New(tpl->GetFunction());
   target->Set(String::NewSymbol("MappedBuffer"), ctor);

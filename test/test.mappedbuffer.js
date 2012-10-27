@@ -272,4 +272,48 @@ describe('MappedBuffer', function () {
       worker.send({ cmd: 'get' });
     });
   });
+
+  describe('fill', function () {
+    var fd;
+    var path = __dirname + '/fill';
+    var size = MappedBuffer.PAGESIZE;
+    var map;
+    before(function (done) {
+      fd = fs.openSync(path, 'a+');
+      var buf = new Buffer(size);
+      buf.fill(0x00, 0, buf.length);
+      fs.writeSync(fd, buf, 0, buf.length);
+      MappedBuffer(
+        size, MappedBuffer.PROT_READ | MappedBuffer.PROT_WRITE, 
+        MappedBuffer.MAP_SHARED, fd, function (err, buf) {
+        if (err) { return done(err); }
+        map = buf;
+        done();
+      });
+    });
+    after(function (done) {
+      fs.closeSync(fd);
+      fs.unlink(path);
+      done();
+    });
+
+    it('should be succeed with `0`, `map.length`', function (done) {
+      map.fill(0xFF, 0, map.length);
+      for (var i = 0; i < map.length; i++) {
+        map[i].should.eql(0xFF);
+      }
+      done();
+    });
+
+    it('should be succeed with `map.length / 2`, `map.length`', function (done) {
+      map.fill(0x00, map.length / 2, map.length);
+      for (var i = 0; i < map.length / 2; i++) {
+        map[i].should.eql(0xFF);
+      }
+      for (var i = map.length / 2; i < map.length; i++) {
+        map[i].should.eql(0x00);
+      }
+      done();
+    });
+  });
 });
