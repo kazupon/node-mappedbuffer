@@ -193,4 +193,41 @@ describe('MappedBuffer', function () {
       done();
     });
   });
+
+  describe('shared memory', function () {
+    var fd;
+    var shared_path = __dirname + '/shared';
+    var size = MappedBuffer.PAGESIZE;
+    before(function (done) {
+      fd = fs.openSync(shared_path, 'a+');
+      var buf = new Buffer(size);
+      buf.fill(0x00, 0, buf.length);
+      fs.writeSync(fd, buf, 0, buf.length);
+      done();
+    });
+    after(function (done) {
+      fs.closeSync(fd);
+      fs.unlink(shared_path);
+      done();
+    });
+    it('should be read `0xFF` value', function (done) {
+      var map = new MappedBuffer(
+        size, MappedBuffer.PROT_READ | MappedBuffer.PROT_WRITE, 
+        MappedBuffer.MAP_SHARED, fd
+      );
+      map[0] = 0xFF;
+      var worker = fork(__dirname + '/worker.js');
+      worker.on('message', function (msg) {
+        if (!msg || !msg.cmd || msg.cmd !== 'get') {
+          worker.kill();
+          return done('an unexpected error');
+        }
+        msg.value.should.eql(0xFF);
+        worker.kill();
+        map.unmap();
+        done();
+      });
+      worker.send({ cmd: 'get' });
+    });
+  });
 });
