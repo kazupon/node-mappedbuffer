@@ -160,4 +160,37 @@ describe('MappedBuffer', function () {
       });
     });
   }); 
+
+  describe('indexed mapping memory access', function () {
+    var fd;
+    var path;
+    var buffer;
+    before(function (done) {
+      path = __dirname + '/indexed';
+      fd = fs.openSync(path, 'a+');
+      var buf = new Buffer(MappedBuffer.PAGESIZE);
+      buf.fill(0xFF, 0, buf.length);
+      fs.writeSync(fd, buf, 0, buf.length);
+      MappedBuffer(
+        buf.length, MappedBuffer.PROT_READ | MappedBuffer.PROT_WRITE, 
+        MappedBuffer.MAP_SHARED, fd, function (err, buf) {
+        if (err) { return done(err); }
+        buffer = buf;
+        done();
+      });
+    });
+    after(function (done) {
+      fs.closeSync(fd);
+      fs.unlink(path);
+      done();
+    });
+    it('should be accessed', function (done) {
+      for (var i = 0; i < buffer.length; i++) {
+        buffer[i].should.eql(0xFF);
+        buffer[i] = 0x00;
+        buffer[i].should.eql(0x00);
+      }
+      done();
+    });
+  });
 });

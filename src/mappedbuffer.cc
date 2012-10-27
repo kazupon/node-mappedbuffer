@@ -47,6 +47,9 @@ MappedBuffer::MappedBuffer(
   }
 
   handle_->Set(length_symbol, Integer::NewFromUnsigned(length_));
+  handle_->SetIndexedPropertiesToExternalArrayData(
+    map_, kExternalUnsignedByteArray, length_
+  );
 }
 
 MappedBuffer::~MappedBuffer() {
