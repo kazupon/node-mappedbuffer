@@ -1,8 +1,8 @@
 {
-    "name": "node-mappedbuffer",
+    "name": "mappedbuffer",
     "main": "./lib/mappedbuffer",
     "version": "0.0.1",
-    "description": "Buffer to store the memory that is mapped by the mmap",
+    "description": "Mapped buffer by the mmap for Node.js",
     "tags": ["buffer"],
     "keywords": ["buffer", "mmap"],
     "author": "kazupon (kazuya kawaguchi) <kawakazu80@gmail.com>",

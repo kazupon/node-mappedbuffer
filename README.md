@@ -1,6 +1,6 @@
 # node-mappedbuffer
 
-Buffer to store the memory that is mapped by the `mmap`
+Mapped buffer by the `mmap` for Node.js.
 
 
 This project is an experiment.
