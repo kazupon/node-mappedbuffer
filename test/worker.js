@@ -11,7 +11,6 @@ process.on('message', function (msg, srv) {
 
   switch (msg.cmd) {
     case 'get':
-      console.log(process.pid, map[0]);
       process.send({
         cmd: 'get',
         value: map[0]

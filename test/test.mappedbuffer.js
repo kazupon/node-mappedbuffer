@@ -4,6 +4,7 @@ var should = require('should');
 var assert = require('assert');
 var format = require('util').format;
 var fs = require('fs');
+var path = require('path');
 var fork = require('child_process').fork;
 var MappedBuffer = require('../lib/mappedbuffer').MappedBuffer;
 
@@ -194,6 +195,46 @@ describe('MappedBuffer', function () {
     });
   });
 
+  var testMapSize = function (size) {
+    var file = path.join(__dirname, format('map%d', size));
+    var fd;
+    var VALUE = 0xFF;
+    describe('map size', function () {
+      before(function (done) {
+        fd = fs.openSync(file, 'a+');
+        var buf = new Buffer(size);
+        buf.fill(VALUE, 0, buf.length);
+        fs.writeSync(fd, buf, 0, buf.length);
+        done();
+      });
+      after(function (done) {
+        fs.closeSync(fd);
+        fs.unlink(file);
+        done();
+      });
+
+      it(format('should be mapped with `%d` size', size), function (done) {
+        var map = MappedBuffer(
+          size, MappedBuffer.PROT_READ | MappedBuffer.PROT_WRITE, 
+          MappedBuffer.MAP_SHARED, fd
+        );
+        map.length.should.eql(size);
+        for (var i = 0; i < map.length; i++) {
+          map[i].should.eql(VALUE);
+        }
+        map.unmap().should.be.true;
+        done();
+      });
+    });
+  };
+
+  testMapSize(MappedBuffer.PAGESIZE);
+  testMapSize(MappedBuffer.PAGESIZE * 2);
+  testMapSize(MappedBuffer.PAGESIZE * 3);
+  testMapSize(MappedBuffer.PAGESIZE * 8);
+  testMapSize(MappedBuffer.PAGESIZE * MappedBuffer.PAGESIZE);
+  //testMapSize(0x3fffffff); // 1GB: (0x40000000 - 0x00000001)
+
   describe('shared memory', function () {
     var fd;
     var shared_path = __dirname + '/shared';
@@ -210,6 +251,7 @@ describe('MappedBuffer', function () {
       fs.unlink(shared_path);
       done();
     });
+
     it('should be read `0xFF` value', function (done) {
       var map = new MappedBuffer(
         size, MappedBuffer.PROT_READ | MappedBuffer.PROT_WRITE, 
