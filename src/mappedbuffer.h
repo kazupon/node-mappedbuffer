@@ -1,5 +1,5 @@
-/*
- * node-mappedbuffer -- Buffer to store the memory that is mapped by the `mmap`
+/**
+ * mappedbuffer -- Mapped buffer by the `mmap` for Node.js.
  * Copyright (C) 2012 kazuya kawaguchi. All rights reserved.
  * 
  * Permission is hereby granted, free of charge, to any person obtaining
@@ -44,10 +44,7 @@ class MappedBuffer : public ObjectWrap {
     size_t length_;
     bool released_;
 
-    MappedBuffer(
-      Handle<Object> wrapper, size_t size, int32_t protection, 
-      int32_t flags, int32_t fd, off_t offset, char *data
-    );
+    MappedBuffer(Handle<Object> wrapper, size_t length, char *data);
     ~MappedBuffer();
 
     static Handle<Value> New(const Arguments &args);

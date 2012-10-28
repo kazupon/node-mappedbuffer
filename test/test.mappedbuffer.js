@@ -149,13 +149,21 @@ describe('MappedBuffer', function () {
       done();
     });
 
+    it('should be succedd with callback', function (done) {
+      buffer.unmap(function (err) {
+        if (err) { return done(err); }
+        buffer.length.should.eql(0);
+        done();
+      });
+    });
+
     describe('many call', function () {
       it('should be succeed', function (done) {
         buffer.unmap().should.be.true;
         buffer.length.should.eql(0);
-        buffer.unmap().should.be.false;
+        buffer.unmap().should.be.true;
         buffer.length.should.eql(0);
-        buffer.unmap().should.be.false;
+        buffer.unmap().should.be.true;
         buffer.length.should.eql(0);
         done();
       });
@@ -297,7 +305,7 @@ describe('MappedBuffer', function () {
       done();
     });
 
-    it('should be succeed with `0`, `map.length`', function (done) {
+    it('should be succeed with `0xFF`, `0`, and `map.length`', function (done) {
       map.fill(0xFF, 0, map.length);
       for (var i = 0; i < map.length; i++) {
         map[i].should.eql(0xFF);
@@ -305,7 +313,7 @@ describe('MappedBuffer', function () {
       done();
     });
 
-    it('should be succeed with `map.length / 2`, `map.length`', function (done) {
+    it('should be succeed with `0x00`, `map.length / 2`, and `map.length`', function (done) {
       map.fill(0x00, map.length / 2, map.length);
       for (var i = 0; i < map.length / 2; i++) {
         map[i].should.eql(0xFF);
@@ -313,6 +321,30 @@ describe('MappedBuffer', function () {
       for (var i = map.length / 2; i < map.length; i++) {
         map[i].should.eql(0x00);
       }
+      done();
+    });
+
+    it('should be succeed with `0xFF`, `0`, `map.length`, and callback', function (done) {
+      map.fill(0xFF, 0, map.length, function (err) {
+        if (err) { return done(err); }
+        for (var i = 0; i < map.length; i++) {
+          map[i].should.eql(0xFF);
+        }
+        done();
+      });
+    });
+
+    it('should be occured error with `2` arguments', function (done) {
+      (function () {
+        map.fill(0xFF, 0);
+      }).should.throw(/Bad argument/);
+      done();
+    })
+
+    it('should be occured error with none number value', function (done) {
+      (function () {
+        map.fill('hoge', 0, map.length);
+      }).should.throw(/Value is not a number/);
       done();
     });
   });

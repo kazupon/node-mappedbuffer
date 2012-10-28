@@ -12,15 +12,57 @@
 #include <sys/mman.h>
 
 
-typedef struct mmap_req_t {
+enum mb_async_t {
+  MB_ASYNC_MMAP,
+  MB_ASYNC_MUNMAP,
+  MB_ASYNC_FILL,
+  MB_ASYNC_MSYNC,
+};
+
+#define MB_ERR_NO_MAP(XX) \
+  XX(-1, UNKNWON, "Unknown error") \
+  XX(0, OK, "Success") \
+  XX(1, MMAP, "Failed mmap") \
+  XX(2, MUNMAP, "Failed munmap")
+
+#define MB_ERR_NO_GEN(Val, Name, Str) MB_ERR_##Name = Val,
+typedef enum {
+  MB_ERR_NO_MAP(MB_ERR_NO_GEN)
+} mb_err_code;
+#undef MB_ERR_NO_GEN
+
+
+#define MB_REQ_FIELD \
+  mb_async_t type; \
+  mb_err_code code; \
+  Persistent<Function> cb
+
+struct mb_req_t {
+  MB_REQ_FIELD;
+};
+
+struct mb_mmap_req_t {
+  MB_REQ_FIELD;
+  Persistent<Object> obj;
   size_t size;
   int32_t protection;
   int32_t flags;
   int32_t fd;
   off_t offset;
   char *map;
-  Persistent<Object> obj;
-  Persistent<Function> cb;
+};
+
+struct mb_munmap_req_t {
+  MB_REQ_FIELD;
+  MappedBuffer *buffer;
+};
+
+struct mb_fill_req_t {
+  MB_REQ_FIELD;
+  MappedBuffer *buffer;
+  int32_t value;
+  int32_t start;
+  int32_t end;
 };
 
 
@@ -28,23 +70,22 @@ static Persistent<String> length_symbol;
 Persistent<Function> MappedBuffer::ctor;
 
 
-MappedBuffer::MappedBuffer(
-  Handle<Object> wrapper, size_t size, int32_t protection, 
-  int32_t flags, int32_t fd, off_t offset, char *data)
-  : map_(NULL), length_(0), released_(false), ObjectWrap() {
-  TRACE(
-    "constructor: size=%ld, protection=%d, flags=%d, fd=%d, offset=%lld, data=%p\n",
-    size, protection, flags, fd, offset, data
-  );
-  Wrap(wrapper);
-
-  map_ = (data == NULL ? (char *)mmap(NULL, size, protection, flags, fd, offset) : data);
-  TRACE("map_=%p\n", map_);
-  length_ = size;
-
-  if (map_ == MAP_FAILED || map_ == NULL) {
-    length_ = 0;
+#define MB_STR_ERR_GEN(Val, Name, Str) case MB_ERR_##Name : return Str;
+static const char* mb_strerror(mb_err_code code) {
+  switch (code) {
+    MB_ERR_NO_MAP(MB_STR_ERR_GEN)
+    default:
+      return "Unknown system error";
   }
+}
+#undef MB_STR_ERR_GEN
+
+
+MappedBuffer::MappedBuffer(Handle<Object> wrapper, size_t length, char *data)
+  : map_(data), length_(length), released_(false), ObjectWrap() {
+  TRACE("constructor: length_=%ld, map_=%p\n", length_, map_);
+  assert(length_ > 0 && map_ != NULL);
+  Wrap(wrapper);
 
   handle_->Set(length_symbol, Integer::NewFromUnsigned(length_));
   handle_->SetIndexedPropertiesToExternalArrayData(
@@ -100,47 +141,52 @@ Handle<Value> MappedBuffer::New(const Arguments &args) {
   const int32_t protection = args[1]->ToInteger()->Value();
   const int32_t flags = args[2]->ToInteger()->Value();
   const int32_t fd = args[3]->ToInteger()->Value();
-  mmap_req_t *req = NULL;
+  mb_mmap_req_t *req = NULL;
   off_t offset = 0;
 
   if (args.Length() == 5) {
     if (args[4]->IsFunction()) {
-      req = reinterpret_cast<mmap_req_t *>(malloc(sizeof(mmap_req_t)));
+      req = reinterpret_cast<mb_mmap_req_t *>(malloc(sizeof(mb_mmap_req_t)));
+      req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[4]));
+      req->code = MB_ERR_OK;
+      req->obj = Persistent<Object>::New(Handle<Object>::Cast(args.This()));
+      req->type = MB_ASYNC_MMAP;
       req->size = size;
       req->protection = protection;
       req->flags = flags;
       req->fd = fd;
       req->offset = offset;
       req->map = NULL;
-      req->obj = Persistent<Object>::New(Handle<Object>::Cast(args.This()));
-      req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[4]));
     } else {
       offset = args[4]->ToInteger()->Value();
     }
   } else if (args.Length() == 6) {
-    req = reinterpret_cast<mmap_req_t *>(malloc(sizeof(mmap_req_t)));
+    req = reinterpret_cast<mb_mmap_req_t *>(malloc(sizeof(mb_mmap_req_t)));
+    req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[5]));
+    req->code = MB_ERR_OK;
+    req->obj = Persistent<Object>::New(Handle<Object>::Cast(args.This()));
+    req->type = MB_ASYNC_MMAP;
     req->size = size;
     req->protection = protection;
     req->flags = flags;
     req->fd = fd;
     req->offset = args[4]->ToInteger()->Value();
     req->map = NULL;
-    req->obj = Persistent<Object>::New(Handle<Object>::Cast(args.This()));
-    req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[5]));
   }
 
   if (req == NULL) { // sync
-    MappedBuffer *obj = new MappedBuffer(
-      args.This(), size, protection, flags, fd, offset, NULL
-    );
+    char *data = (char *)mmap(NULL, size, protection, flags, fd, offset);
+    TRACE("mmap: %p\n", data);
+    MappedBuffer *obj = new MappedBuffer(args.This(), size, data);
     return args.This();
   } else { // async
     uv_work_t *uv_req = reinterpret_cast<uv_work_t*>(malloc(sizeof(uv_work_t)));
     assert(uv_req != NULL);
     uv_req->data = req;
 
-    int32_t ret = uv_queue_work(uv_default_loop(), uv_req, OnWork, OnWorkDone);
-    TRACE("uv_queue_work: ret=%d\n", ret);
+    int32_t ret = uv_queue_work(
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+    );
     assert(ret == 0);
     return scope.Close(args.This());
   }
@@ -150,10 +196,54 @@ Handle<Value> MappedBuffer::Unmap(const Arguments &args) {
   HandleScope scope;
   TRACE("Unmap\n");
 
-  MappedBuffer *buf = ObjectWrap::Unwrap<MappedBuffer>(args.This());
-  assert(buf != NULL);
+  MappedBuffer *mappedbuffer = ObjectWrap::Unwrap<MappedBuffer>(args.This());
+  assert(mappedbuffer != NULL);
 
-  return scope.Close(Boolean::New(buf->unmap()));
+  if (args.Length() == 1 && args[0]->IsFunction()) {
+    if (mappedbuffer->released_) {
+      return scope.Close(Boolean::New(true));
+    }
+    assert(!mappedbuffer->released_);
+
+    mb_munmap_req_t *req = reinterpret_cast<mb_munmap_req_t *>(malloc(sizeof(mb_munmap_req_t)));
+    assert(req != NULL);
+    req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[0]));
+    req->code = MB_ERR_OK;
+    req->type = MB_ASYNC_MUNMAP;
+    req->buffer = mappedbuffer;
+
+    uv_work_t *uv_req = reinterpret_cast<uv_work_t*>(malloc(sizeof(uv_work_t)));
+    assert(uv_req != NULL);
+    uv_req->data = req;
+
+    int32_t ret = uv_queue_work(
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+    );
+    assert(ret == 0);
+
+    mappedbuffer->Ref();
+    return scope.Close(args.This());
+  } else {
+    if (mappedbuffer->released_) {
+      return scope.Close(Boolean::New(true));
+    }
+    assert(!mappedbuffer->released_);
+
+    int32_t ret = munmap(mappedbuffer->map_, mappedbuffer->length_);
+    TRACE("munmap: %d\n", ret);
+    if (ret == 0) {
+      mappedbuffer->map_ = NULL;
+      mappedbuffer->length_ = 0;
+      mappedbuffer->handle_->Set(length_symbol, Integer::NewFromUnsigned(mappedbuffer->length_));
+      mappedbuffer->released_ = true;
+      return scope.Close(Boolean::New(true));
+    } else if (ret == -1) {
+      // TODO: should be checked mumap detail error
+      return scope.Close(Boolean::New(false));
+    } else {
+      return ThrowException(Exception::Error(String::New("Unknown munmap return value")));
+    }
+  }
 }
 
 Handle<Value> MappedBuffer::Fill(const Arguments &args) {
@@ -175,30 +265,90 @@ Handle<Value> MappedBuffer::Fill(const Arguments &args) {
   // TODO; should be checked 'end' value type and range.
   const int32_t end = args[2]->ToInteger()->Value();
 
-  MappedBuffer *buf = ObjectWrap::Unwrap<MappedBuffer>(args.This());
-  assert(buf != NULL);
+  MappedBuffer *mappedbuffer = ObjectWrap::Unwrap<MappedBuffer>(args.This());
+  assert(mappedbuffer != NULL);
 
-  memset((void *)(buf->map_ + start), value, end - start);
+  if (args.Length() == 4 && args[3]->IsFunction()) {
+    mb_fill_req_t *req = reinterpret_cast<mb_fill_req_t *>(malloc(sizeof(mb_fill_req_t)));
+    assert(req != NULL);
+    req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[3]));
+    req->code = MB_ERR_OK;
+    req->type = MB_ASYNC_FILL;
+    req->buffer = mappedbuffer;
+    req->value = value;
+    req->start = start;
+    req->end = end;
 
-  return scope.Close(args.This());
+    uv_work_t *uv_req = reinterpret_cast<uv_work_t*>(malloc(sizeof(uv_work_t)));
+    assert(uv_req != NULL);
+    uv_req->data = req;
+
+    int32_t ret = uv_queue_work(
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+    );
+    assert(ret == 0);
+
+    mappedbuffer->Ref();
+    return scope.Close(args.This());
+  } else {
+    memset((void *)(mappedbuffer->map_ + start), value, end - start);
+    return scope.Close(args.This());
+  }
 }
 
 void MappedBuffer::OnWork(uv_work_t *work_req) {
   TRACE("work_req=%p\n", work_req);
+  assert(work_req != NULL);
 
-  mmap_req_t *req = reinterpret_cast<mmap_req_t *>(work_req->data);
-  assert(req != NULL);
+  mb_req_t *mb_req = reinterpret_cast<mb_req_t *>(work_req->data);
+  assert(mb_req != NULL);
 
-  req->map = (char *)mmap(NULL, req->size, req->protection, req->flags, req->fd, req->offset);
-  TRACE("mmap: map =%p\n", req->map);
+  switch (mb_req->type) {
+    case MB_ASYNC_MMAP:
+      {
+        mb_mmap_req_t *req = reinterpret_cast<mb_mmap_req_t *>(work_req->data);
+        assert(req != NULL);
+        req->map = (char *)mmap(
+          NULL, req->size, req->protection, req->flags, req->fd, req->offset
+        );
+        TRACE("mmap: %p\n", req->map);
+        if (req->map == MAP_FAILED) {
+          req->code = MB_ERR_MMAP;
+        }
+      }
+      break;
+    case MB_ASYNC_MUNMAP:
+      {
+        mb_munmap_req_t *req = reinterpret_cast<mb_munmap_req_t *>(work_req->data);
+        assert(req != NULL);
+        assert(!req->buffer->released_);
+
+        int32_t ret = munmap(req->buffer->map_, req->buffer->length_);
+        TRACE("munmap: %d\n", ret);
+        if (ret != 0) {
+          req->code = MB_ERR_MUNMAP;
+        }
+      }
+      break;
+    case MB_ASYNC_FILL:
+      {
+        mb_fill_req_t *req = reinterpret_cast<mb_fill_req_t *>(work_req->data);
+        assert(req != NULL);
+        memset((void *)(req->buffer->map_ + req->start), req->value, req->end - req->start);
+      }
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 void MappedBuffer::OnWorkDone(uv_work_t *work_req) {
-  HandleScope scope;
   TRACE("work_req=%p\n", work_req);
+  HandleScope scope;
 
-  mmap_req_t *req = static_cast<mmap_req_t *>(work_req->data);
-  assert(req != NULL);
+  mb_req_t *mb_req = reinterpret_cast<mb_req_t *>(work_req->data);
+  assert(mb_req != NULL);
 
   // init callback arguments.
   int32_t argc = 0;
@@ -208,34 +358,94 @@ void MappedBuffer::OnWorkDone(uv_work_t *work_req) {
   };
 
   // set error to callback arguments.
-  if (req->map == MAP_FAILED) {
-    const char *name = "mmap error";
+  if (mb_req->code != MB_ERR_OK) {
+    const char *name = mb_strerror(mb_req->code);
     Local<String> message = String::NewSymbol(name);
     Local<Value> err = Exception::Error(message);
+    Local<Object> obj = err->ToObject();
+    obj->Set(
+      String::NewSymbol("code"), Integer::New(mb_req->code),
+      static_cast<PropertyAttribute>(ReadOnly | DontDelete)
+    );
     argv[argc] = err;
   }
   argc++;
 
-  MappedBuffer *mappedbuffer = new MappedBuffer(
-    req->obj, req->size, req->protection, req->flags, req->fd, req->offset, req->map
-  );
-  Local<Value> buf = Local<Value>::New(mappedbuffer->handle_);
-  argv[argc++] = buf;
+  // operations
+  switch (mb_req->type) {
+    case MB_ASYNC_MMAP:
+      {
+        mb_mmap_req_t *req = static_cast<mb_mmap_req_t *>(work_req->data);
+        assert(req != NULL);
+        MappedBuffer *mappedbuffer = new MappedBuffer(req->obj, req->size, req->map);
+        Local<Value> buf = Local<Value>::New(mappedbuffer->handle_);
+        argv[argc++] = buf;
+      }
+      break;
+    case MB_ASYNC_MUNMAP:
+      {
+        mb_munmap_req_t *req = static_cast<mb_munmap_req_t*>(work_req->data);
+        assert(req != NULL);
+        if (req->code == MB_ERR_OK) {
+          req->buffer->map_ = NULL;
+          req->buffer->length_ = 0;
+          req->buffer->handle_->Set(length_symbol, Integer::NewFromUnsigned(req->buffer->length_));
+          req->buffer->released_ = true;
+        }
+      }
+      break;
+    case MB_ASYNC_FILL:
+      break;
+    default:
+      assert(false);
+      break;
+  }
 
   // execute callback
-  if (!req->cb.IsEmpty()) {
+  if (!mb_req->cb.IsEmpty()) {
     TryCatch try_catch;
-    MakeCallback(Context::GetCurrent()->Global(), req->cb, argc, argv);
+    MakeCallback(Context::GetCurrent()->Global(), mb_req->cb, argc, argv);
     if (try_catch.HasCaught()) {
       FatalException(try_catch);
     }
   } 
 
+
   // releases
-  req->cb.Dispose();
-  req->obj.Dispose();
-  req->map = NULL;
-  free(req);
+  mb_req->cb.Dispose();
+
+  switch (mb_req->type) {
+    case MB_ASYNC_MMAP:
+      {
+        mb_mmap_req_t *req = static_cast<mb_mmap_req_t *>(work_req->data);
+        assert(req != NULL);
+        req->obj.Dispose();
+        req->map = NULL;
+        free(req);
+      }
+      break;
+    case MB_ASYNC_MUNMAP:
+      {
+        mb_munmap_req_t *req = static_cast<mb_munmap_req_t*>(work_req->data);
+        assert(req != NULL);
+        req->buffer->Unref();
+        req->buffer = NULL;
+        free(req);
+      }
+      break;
+    case MB_ASYNC_FILL:
+      {
+        mb_fill_req_t *req = static_cast<mb_fill_req_t *>(work_req->data);
+        assert(req != NULL);
+        req->buffer->Unref();
+        req->buffer = NULL;
+      }
+      break;
+    default:
+      assert(false);
+      break;
+  }
+
   work_req->data = NULL;
   free(work_req);
 }
