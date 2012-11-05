@@ -1,7 +1,7 @@
 {
     "name": "mappedbuffer",
     "main": "./lib/mappedbuffer",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Mapped buffer by the mmap for Node.js",
     "tags": ["buffer"],
     "keywords": ["buffer", "mmap"],
