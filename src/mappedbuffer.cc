@@ -479,6 +479,9 @@ void MappedBuffer::Init(Handle<Object> target) {
   NODE_DEFINE_CONSTANT(ctor, MAP_PRIVATE);
   NODE_DEFINE_CONSTANT(ctor, MAP_NORESERVE);
   NODE_DEFINE_CONSTANT(ctor, MAP_FIXED);
+  NODE_DEFINE_CONSTANT(ctor, MS_ASYNC);
+  NODE_DEFINE_CONSTANT(ctor, MS_SYNC);
+  NODE_DEFINE_CONSTANT(ctor, MS_INVALIDATE);
   ctor->Set(
     String::NewSymbol("PAGESIZE"), Integer::New(sysconf(_SC_PAGESIZE)),
     static_cast<PropertyAttribute>(ReadOnly | DontDelete)

@@ -26,6 +26,9 @@ describe('MappedBuffer', function () {
   itShouldBeDefined(MappedBuffer, 'MAP_PRIVATE');
   itShouldBeDefined(MappedBuffer, 'MAP_NORESERVE');
   itShouldBeDefined(MappedBuffer, 'MAP_FIXED');
+  itShouldBeDefined(MappedBuffer, 'MS_ASYNC');
+  itShouldBeDefined(MappedBuffer, 'MS_SYNC');
+  itShouldBeDefined(MappedBuffer, 'MS_INVALIDATE');
   itShouldBeDefined(MappedBuffer, 'PAGESIZE');
 
   describe('new', function () {
@@ -347,5 +350,8 @@ describe('MappedBuffer', function () {
       }).should.throw(/Value is not a number/);
       done();
     });
+  });
+
+  describe('sync', function () {
   });
 });
