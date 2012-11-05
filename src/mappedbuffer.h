@@ -50,6 +50,7 @@ class MappedBuffer : public ObjectWrap {
     static Handle<Value> New(const Arguments &args);
     static Handle<Value> Unmap(const Arguments &args);
     static Handle<Value> Fill(const Arguments &args);
+    static Handle<Value> Sync(const Arguments &args);
 
     static void OnWork(uv_work_t *work_req);
     static void OnWorkDone(uv_work_t *work_req);

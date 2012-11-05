@@ -23,7 +23,8 @@ enum mb_async_t {
   XX(-1, UNKNWON, "Unknown error") \
   XX(0, OK, "Success") \
   XX(1, MMAP, "Failed mmap") \
-  XX(2, MUNMAP, "Failed munmap")
+  XX(2, MUNMAP, "Failed munmap") \
+  XX(3, MSYNC, "Failed msync")
 
 #define MB_ERR_NO_GEN(Val, Name, Str) MB_ERR_##Name = Val,
 typedef enum {
@@ -63,6 +64,13 @@ struct mb_fill_req_t {
   int32_t value;
   int32_t start;
   int32_t end;
+};
+
+struct mb_msync_req_t {
+  MB_REQ_FIELD;
+  MappedBuffer *buffer;
+  size_t size;
+  int32_t flags;
 };
 
 
@@ -291,10 +299,61 @@ Handle<Value> MappedBuffer::Fill(const Arguments &args) {
     mappedbuffer->Ref();
     return scope.Close(args.This());
   } else {
+    // TODO: should be checked memset detail error
     memset((void *)(mappedbuffer->map_ + start), value, end - start);
     return scope.Close(args.This());
   }
 }
+
+Handle<Value> MappedBuffer::Sync(const Arguments &args) {
+  HandleScope scope;
+  TRACE("Sync\n");
+
+	if (args.Length() < 2) {
+		return ThrowException(Exception::Error(String::New("Bad argument")));
+	}
+
+  if (!args[0]->IsInt32()) {
+    return ThrowException(Exception::Error(String::New("Value is not a number")));
+  }
+  // TODO; should be checked 'size' value type and range.
+  const int32_t size = args[0]->ToInteger()->Value();
+
+  // TODO; should be checked 'flags' range.
+  const int32_t flags = args[1]->ToInteger()->Value();
+
+  MappedBuffer *mappedbuffer = ObjectWrap::Unwrap<MappedBuffer>(args.This());
+  assert(mappedbuffer != NULL);
+
+  if (args.Length() == 3 && args[2]->IsFunction()) {
+    mb_msync_req_t *req = reinterpret_cast<mb_msync_req_t *>(malloc(sizeof(mb_msync_req_t)));
+    assert(req != NULL);
+    req->cb = Persistent<Function>::New(Handle<Function>::Cast(args[2]));
+    req->code = MB_ERR_OK;
+    req->type = MB_ASYNC_MSYNC;
+    req->buffer = mappedbuffer;
+    req->size = size;
+    req->flags = flags;
+
+    uv_work_t *uv_req = reinterpret_cast<uv_work_t*>(malloc(sizeof(uv_work_t)));
+    assert(uv_req != NULL);
+    uv_req->data = req;
+
+    int32_t ret = uv_queue_work(
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+    );
+    assert(ret == 0);
+
+    mappedbuffer->Ref();
+    return scope.Close(args.This());
+  } else {
+      // TODO: should be checked msync detail error
+    int32_t ret = msync((void *)(mappedbuffer->map_), size, flags);
+    TRACE("msync: %d\n", ret);
+    return scope.Close(args.This());
+  }
+}
+
 
 void MappedBuffer::OnWork(uv_work_t *work_req) {
   TRACE("work_req=%p\n", work_req);
@@ -312,6 +371,7 @@ void MappedBuffer::OnWork(uv_work_t *work_req) {
           NULL, req->size, req->protection, req->flags, req->fd, req->offset
         );
         TRACE("mmap: %p\n", req->map);
+        // TODO: should be checked mmap detail error
         if (req->map == MAP_FAILED) {
           req->code = MB_ERR_MMAP;
         }
@@ -325,6 +385,7 @@ void MappedBuffer::OnWork(uv_work_t *work_req) {
 
         int32_t ret = munmap(req->buffer->map_, req->buffer->length_);
         TRACE("munmap: %d\n", ret);
+        // TODO: should be checked munmap detail error
         if (ret != 0) {
           req->code = MB_ERR_MUNMAP;
         }
@@ -337,6 +398,17 @@ void MappedBuffer::OnWork(uv_work_t *work_req) {
         memset((void *)(req->buffer->map_ + req->start), req->value, req->end - req->start);
       }
       break;
+    case MB_ASYNC_MSYNC:
+      {
+        mb_msync_req_t *req = reinterpret_cast<mb_msync_req_t *>(work_req->data);
+        int32_t ret = msync((void *)(req->buffer->map_), req->size, req->flags);
+        TRACE("msync: %d\n", ret);
+        // TODO: should be checked msync detail error
+        if (ret != 0) {
+          req->code = MB_ERR_MSYNC;
+        }
+        assert(req != NULL);
+      }
     default:
       assert(false);
       break;
@@ -395,6 +467,7 @@ void MappedBuffer::OnWorkDone(uv_work_t *work_req) {
       }
       break;
     case MB_ASYNC_FILL:
+    case MB_ASYNC_MSYNC:
       break;
     default:
       assert(false);
@@ -441,6 +514,14 @@ void MappedBuffer::OnWorkDone(uv_work_t *work_req) {
         req->buffer = NULL;
       }
       break;
+    case MB_ASYNC_MSYNC:
+      {
+        mb_msync_req_t *req = static_cast<mb_msync_req_t *>(work_req->data);
+        assert(req != NULL);
+        req->buffer->Unref();
+        req->buffer = NULL;
+      }
+      break;
     default:
       assert(false);
       break;
@@ -465,6 +546,7 @@ void MappedBuffer::Init(Handle<Object> target) {
   // prototype
   NODE_SET_PROTOTYPE_METHOD(tpl, "unmap", MappedBuffer::Unmap);
   NODE_SET_PROTOTYPE_METHOD(tpl, "fill", MappedBuffer::Fill);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "sync", MappedBuffer::Sync);
 
   ctor = Persistent<Function>::New(tpl->GetFunction());
   target->Set(String::NewSymbol("MappedBuffer"), ctor);

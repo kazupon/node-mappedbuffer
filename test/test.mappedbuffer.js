@@ -353,5 +353,44 @@ describe('MappedBuffer', function () {
   });
 
   describe('sync', function () {
+    var fd;
+    var path = __dirname + '/sync';
+    var size = MappedBuffer.PAGESIZE;
+    var map;
+    before(function (done) {
+      fd = fs.openSync(path, 'a+');
+      var buf = new Buffer(size);
+      buf.fill(0x00, 0, buf.length);
+      fs.writeSync(fd, buf, 0, buf.length);
+      MappedBuffer(
+        size, MappedBuffer.PROT_READ | MappedBuffer.PROT_WRITE, 
+        MappedBuffer.MAP_SHARED, fd, function (err, buf) {
+        if (err) { return done(err); }
+        map = buf;
+        map.fill(0xFF, 0, map.length);
+        done();
+      });
+    });
+    after(function (done) {
+      fs.closeSync(fd);
+      fs.unlink(path);
+      done();
+    });
+
+    it('should be synced with map.length and `MS_SYNC`', function (done) {
+      map.sync(map.length, MappedBuffer.MS_ASYNC, function (err) {
+        if (err) { return done(err); }
+        map.unmap();
+        fs.closeSync(fd);
+        fd = fs.openSync(path, 'r');
+        var buf = new Buffer(size);
+        buf = fs.readSync(fd, buf, 0, buf.length);
+        for (var i = 0; i < buf.length; i++) {
+          buf[i].should.eql(0xFF);
+        }
+        done();
+      });
+      // TODO: should be checked 'MS_ASYNC', 'MS_INVALIDATE'
+    });
   });
 });
