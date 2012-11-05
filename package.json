@@ -20,6 +20,9 @@
         "mocha": "*",
         "should": "*"
     },
+    "scripts": {
+      "test": "make test"
+    },
     "engines": {
         "node": ">= 0.8.14"
     }
