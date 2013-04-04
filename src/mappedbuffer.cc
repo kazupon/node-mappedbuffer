@@ -194,7 +194,7 @@ Handle<Value> MappedBuffer::New(const Arguments &args) {
     uv_req->data = req;
 
     int32_t ret = uv_queue_work(
-      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, (uv_after_work_cb)MappedBuffer::OnWorkDone
     );
     assert(ret == 0);
     return scope.Close(args.This());
@@ -226,7 +226,7 @@ Handle<Value> MappedBuffer::Unmap(const Arguments &args) {
     uv_req->data = req;
 
     int32_t ret = uv_queue_work(
-      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, (uv_after_work_cb)MappedBuffer::OnWorkDone
     );
     assert(ret == 0);
 
@@ -293,7 +293,7 @@ Handle<Value> MappedBuffer::Fill(const Arguments &args) {
     uv_req->data = req;
 
     int32_t ret = uv_queue_work(
-      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, (uv_after_work_cb)MappedBuffer::OnWorkDone
     );
     assert(ret == 0);
 
@@ -341,7 +341,7 @@ Handle<Value> MappedBuffer::Sync(const Arguments &args) {
     uv_req->data = req;
 
     int32_t ret = uv_queue_work(
-      uv_default_loop(), uv_req, MappedBuffer::OnWork, MappedBuffer::OnWorkDone
+      uv_default_loop(), uv_req, MappedBuffer::OnWork, (uv_after_work_cb)MappedBuffer::OnWorkDone
     );
     assert(ret == 0);
 
