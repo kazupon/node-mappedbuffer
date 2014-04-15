@@ -7,9 +7,10 @@
 
 #include "mappedbuffer.h"
 #include "debug.h"
-#include <errno.h>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
-#include <stdlib.h>
 #include <sys/mman.h>
 
 
